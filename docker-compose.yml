@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # 后端服务
+  backend:
+    build: ./backend
+    container_name: sql-practice-backend
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - DB_TYPE=sqlite
+      - DB_PATH=/app/data/sql-practice.db
+      - QUERY_TIMEOUT=30000
+      - MAX_ROWS=1000
+      - JWT_SECRET=dev-secret-key
+    volumes:
+      - ./backend/src:/app/src
+      - ./data:/app/data
+    networks:
+      - sql-practice-network
+    restart: unless-stopped
+
+  # 前端服务
+  frontend:
+    build: ./frontend
+    container_name: sql-practice-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:3001/api
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    depends_on:
+      - backend
+    networks:
+      - sql-practice-network
+    restart: unless-stopped
+
+  # PostgreSQL 数据库（可选，生产环境使用）
+  postgres:
+    image: postgres:16-alpine
+    container_name: sql-practice-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=sql_practice
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - sql-practice-network
+    restart: unless-stopped
+    profiles:
+      - postgres
+
+volumes:
+  postgres-data:
+
+networks:
+  sql-practice-network:
+    driver: bridge
