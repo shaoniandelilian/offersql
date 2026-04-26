@@ -9,6 +9,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import AdminUsers from './pages/AdminUsers';
 import Contributions from './pages/Contributions';
 import AdminContributions from './pages/AdminContributions';
+import LandingPage from './pages/LandingPage';
 
 // 简单的路由保护组件
 const ProtectedRoute = ({ children }) => {
@@ -21,10 +22,11 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-100">
       <Routes>
+        <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route
-          path="/"
+          path="/app"
           element={
             <ProtectedRoute>
               <Layout />

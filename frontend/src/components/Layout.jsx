@@ -24,13 +24,13 @@ const Layout = () => {
   }
 
   const navItems = [
-    { path: '/questions', label: '面试题库', icon: BookOpen },
-    { path: '/schema', label: '数据库结构', icon: Database },
-    { path: '/contributions', label: '贡献题目', icon: PenSquare },
+    { path: '/app/questions', label: '面试题库', icon: BookOpen },
+    { path: '/app/schema', label: '数据库结构', icon: Database },
+    { path: '/app/contributions', label: '贡献题目', icon: PenSquare },
   ];
   if (currentUser.role === 'ADMIN') {
-    navItems.push({ path: '/admin/users', label: '用户管理', icon: Shield });
-    navItems.push({ path: '/admin/contributions', label: '投稿审核', icon: BadgeCheck });
+    navItems.push({ path: '/app/admin/users', label: '用户管理', icon: Shield });
+    navItems.push({ path: '/app/admin/contributions', label: '投稿审核', icon: BadgeCheck });
   }
 
   return (
@@ -45,7 +45,7 @@ const Layout = () => {
           {isSidebarOpen && (
             <h1
               className="text-xl font-bold text-gray-800 cursor-pointer"
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/app')}
               title="进入 SQL 编辑器"
             >
               OfferSQL
