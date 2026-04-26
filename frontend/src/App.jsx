@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
+import Landing from './pages/Landing';
 import SQLEditor from './pages/SQLEditor';
 import SchemaViewer from './pages/SchemaViewer';
 import InterviewQuestions from './pages/InterviewQuestions';
@@ -21,10 +22,11 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-100">
       <Routes>
+        <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route
-          path="/"
+          path="/app"
           element={
             <ProtectedRoute>
               <Layout />
@@ -38,6 +40,11 @@ function App() {
           <Route path="admin/users" element={<AdminUsers />} />
           <Route path="admin/contributions" element={<AdminContributions />} />
         </Route>
+        <Route path="/schema" element={<Navigate to="/app/schema" replace />} />
+        <Route path="/questions" element={<Navigate to="/app/questions" replace />} />
+        <Route path="/contributions" element={<Navigate to="/app/contributions" replace />} />
+        <Route path="/admin/users" element={<Navigate to="/app/admin/users" replace />} />
+        <Route path="/admin/contributions" element={<Navigate to="/app/admin/contributions" replace />} />
       </Routes>
     </div>
   );

@@ -571,7 +571,7 @@ const SQLEditor = () => {
               </div>
               <div className="flex items-center space-x-2">
                 <button
-                  onClick={() => navigate('/questions')}
+                  onClick={() => navigate('/app/questions')}
                   className="flex items-center space-x-1.5 px-3 py-1.5 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg text-sm font-medium transition-colors"
                 >
                   <ArrowLeft size={16} />

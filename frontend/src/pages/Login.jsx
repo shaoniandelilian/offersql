@@ -37,7 +37,7 @@ const Login = () => {
 
   useEffect(() => {
     if (localStorage.getItem('auth_token')) {
-      navigate('/');
+      navigate('/app');
     }
   }, [navigate]);
 
@@ -109,7 +109,7 @@ const Login = () => {
       if (!response.success) return;
       persistAuth(response);
       toast.success('已进入游客模式，仅可浏览');
-      navigate('/');
+      navigate('/app');
     } catch (error) {
       const message = error?.response?.data?.error || '游客登录失败';
       setLoginError(message);
@@ -151,7 +151,7 @@ const Login = () => {
 
       persistAuth(response);
       toast.success(mode === 'register' ? '注册成功，已自动登录' : '登录成功');
-      navigate('/');
+      navigate('/app');
     } catch (error) {
       const fallback = mode === 'register'
         ? '注册失败，请稍后重试'

@@ -395,7 +395,7 @@ const InterviewQuestions = () => {
     localStorage.removeItem('sql_editor_content');
     localStorage.removeItem('sql_editor_result');
     localStorage.setItem('sql_editor_question', JSON.stringify(question));
-    navigate('/');
+    navigate('/app');
     toast.success('已加载题目到 SQL 编辑器');
   };
 
