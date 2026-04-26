@@ -1,6 +1,4 @@
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const interviewQuestions = require('../questionData/interviewQuestions');
 
 const LIBRARY_DEFS = [
   {
@@ -117,24 +115,12 @@ function canAccessLibrary(user, libraryId) {
   return permissions.includes(libraryId);
 }
 
-function loadQuestionsFromFrontend() {
+function loadQuestions() {
   if (cachedQuestions) {
     return cachedQuestions;
   }
 
-  const sourcePath = path.resolve(__dirname, '../../../frontend/src/data/interviewQuestions.js');
-  const source = fs.readFileSync(sourcePath, 'utf8');
-  const transformed = source
-    .replace('export const interviewQuestions =', 'const interviewQuestions =')
-    .replace(/export const categories[\s\S]*$/, '')
-    .concat('\nmodule.exports = interviewQuestions;\n');
-
-  const sandbox = { module: { exports: [] }, exports: {} };
-  vm.createContext(sandbox);
-  vm.runInContext(transformed, sandbox);
-  const list = sandbox.module.exports || [];
-
-  cachedQuestions = list.map((q) => {
+  cachedQuestions = interviewQuestions.map((q) => {
     const libraries = getLibrariesForQuestion(q.id);
     return {
       ...q,
@@ -146,7 +132,7 @@ function loadQuestionsFromFrontend() {
 }
 
 function getQuestionById(questionId) {
-  return loadQuestionsFromFrontend().find((q) => q.id === questionId) || null;
+  return loadQuestions().find((q) => q.id === questionId) || null;
 }
 
 function canPracticeQuestion(user, question) {
@@ -199,7 +185,7 @@ function toQuestionDetail(question, user) {
 }
 
 function getLibrariesMeta(questions, user) {
-  const list = questions || loadQuestionsFromFrontend();
+  const list = questions || loadQuestions();
   return LIBRARY_DEFS.map((lib) => ({
     ...lib,
     count: list.filter((q) => (q.libraries || []).includes(lib.id)).length,
@@ -208,7 +194,7 @@ function getLibrariesMeta(questions, user) {
 }
 
 module.exports = {
-  loadQuestionsFromFrontend,
+  loadQuestions,
   getQuestionById,
   canPracticeQuestion,
   toQuestionSummary,

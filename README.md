@@ -95,7 +95,7 @@
 
 ## 当前题库设计
 
-题库映射逻辑在 [questionCatalog.js](</Users/wuteng/Desktop/offersql/SQL练习/backend/src/services/questionCatalog.js>)，题目数据在 [interviewQuestions.js](</Users/wuteng/Desktop/offersql/SQL练习/frontend/src/data/interviewQuestions.js>)。
+题库映射逻辑在 [questionCatalog.js](</Users/wuteng/Desktop/offersql/SQL练习/backend/src/services/questionCatalog.js>)，题目数据在 [interviewQuestions.js](</Users/wuteng/Desktop/offersql/SQL练习/backend/src/questionData/interviewQuestions.js>)。
 
 当前共有三套题库：
 

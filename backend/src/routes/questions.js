@@ -1,6 +1,6 @@
 const express = require('express');
 const {
-  loadQuestionsFromFrontend,
+  loadQuestions,
   getQuestionById,
   toQuestionSummary,
   toQuestionDetail,
@@ -10,7 +10,7 @@ const {
 const router = express.Router();
 
 router.get('/', (req, res) => {
-  const questions = loadQuestionsFromFrontend();
+  const questions = loadQuestions();
   const data = questions.map((q) => toQuestionSummary(q, req.user));
   const libraries = getLibrariesMeta(questions, req.user);
 
