@@ -220,6 +220,10 @@ class DatabaseService {
         username VARCHAR(50) NOT NULL UNIQUE,
         email VARCHAR(100) UNIQUE,
         phone VARCHAR(20) UNIQUE,
+        wechat_openid VARCHAR(100) UNIQUE,
+        wechat_unionid VARCHAR(100),
+        wechat_nickname VARCHAR(100),
+        wechat_avatar_url VARCHAR(255),
         password_hash VARCHAR(255) NOT NULL,
         role VARCHAR(20) NOT NULL DEFAULT 'USER',
         plan VARCHAR(20) NOT NULL DEFAULT 'FREE',
@@ -571,6 +575,10 @@ class DatabaseService {
     const columnsToEnsure = [
       { name: 'email', type: 'VARCHAR(100)' },
       { name: 'phone', type: 'VARCHAR(20)' },
+      { name: 'wechat_openid', type: 'VARCHAR(100)' },
+      { name: 'wechat_unionid', type: 'VARCHAR(100)' },
+      { name: 'wechat_nickname', type: 'VARCHAR(100)' },
+      { name: 'wechat_avatar_url', type: 'VARCHAR(255)' },
       { name: 'library_permissions', type: "VARCHAR(255) NOT NULL DEFAULT '[]'" },
     ];
 
@@ -584,6 +592,7 @@ class DatabaseService {
       }
       await this.runWithChanges('CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_email ON app_users(email)');
       await this.runWithChanges('CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_phone ON app_users(phone)');
+      await this.runWithChanges('CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_wechat_openid ON app_users(wechat_openid)');
       return;
     }
 
@@ -632,6 +641,20 @@ class DatabaseService {
       if (!emailIndexRows.length) {
         await this.pool.query('CREATE UNIQUE INDEX idx_app_users_email ON app_users(email)');
       }
+      const [wechatIndexRows] = await this.pool.execute(
+        `
+        SELECT INDEX_NAME
+        FROM information_schema.statistics
+        WHERE table_schema = ?
+          AND table_name = 'app_users'
+          AND index_name = 'idx_app_users_wechat_openid'
+        LIMIT 1
+        `,
+        [dbName]
+      );
+      if (!wechatIndexRows.length) {
+        await this.pool.query('CREATE UNIQUE INDEX idx_app_users_wechat_openid ON app_users(wechat_openid)');
+      }
       return;
     }
 
@@ -651,6 +674,7 @@ class DatabaseService {
     }
     await this.pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_email ON app_users(email)');
     await this.pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_phone ON app_users(phone)');
+    await this.pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_wechat_openid ON app_users(wechat_openid)');
   }
 
   runSQLite(sql) {
@@ -1138,7 +1162,7 @@ class DatabaseService {
 
   async findAuthUserByUsername(username) {
     const sql = `
-      SELECT id, username, email, phone, password_hash, role, plan, library_permissions, status, created_at
+      SELECT id, username, email, phone, wechat_openid, wechat_unionid, wechat_nickname, wechat_avatar_url, password_hash, role, plan, library_permissions, status, created_at
       FROM app_users
       WHERE username = ?
       LIMIT 1
@@ -1159,7 +1183,7 @@ class DatabaseService {
 
   async findAuthUserById(id) {
     const sql = `
-      SELECT id, username, email, phone, password_hash, role, plan, library_permissions, status, created_at
+      SELECT id, username, email, phone, wechat_openid, wechat_unionid, wechat_nickname, wechat_avatar_url, password_hash, role, plan, library_permissions, status, created_at
       FROM app_users
       WHERE id = ?
       LIMIT 1
@@ -1180,7 +1204,7 @@ class DatabaseService {
 
   async findAuthUserByPhone(phone) {
     const sql = `
-      SELECT id, username, email, phone, password_hash, role, plan, library_permissions, status, created_at
+      SELECT id, username, email, phone, wechat_openid, wechat_unionid, wechat_nickname, wechat_avatar_url, password_hash, role, plan, library_permissions, status, created_at
       FROM app_users
       WHERE phone = ?
       LIMIT 1
@@ -1204,6 +1228,10 @@ class DatabaseService {
       username,
       email: null,
       phone,
+      wechatOpenId: null,
+      wechatUnionId: null,
+      wechatNickname: null,
+      wechatAvatarUrl: null,
       passwordHash,
       role,
       plan,
@@ -1213,7 +1241,7 @@ class DatabaseService {
 
   async findAuthUserByEmail(email) {
     const sql = `
-      SELECT id, username, email, phone, password_hash, role, plan, library_permissions, status, created_at
+      SELECT id, username, email, phone, wechat_openid, wechat_unionid, wechat_nickname, wechat_avatar_url, password_hash, role, plan, library_permissions, status, created_at
       FROM app_users
       WHERE email = ?
       LIMIT 1
@@ -1232,17 +1260,64 @@ class DatabaseService {
     return result.rows[0] || null;
   }
 
-  async createAuthUserWithProfile({ username, email = null, phone = null, passwordHash, role = 'USER', plan = 'FREE', libraryPermissions = [] }) {
+  async findAuthUserByWechatOpenId(wechatOpenId) {
+    const sql = `
+      SELECT id, username, email, phone, wechat_openid, wechat_unionid, wechat_nickname, wechat_avatar_url, password_hash, role, plan, library_permissions, status, created_at
+      FROM app_users
+      WHERE wechat_openid = ?
+      LIMIT 1
+    `;
+
+    if (this.type === 'sqlite') {
+      const rows = await this.allSQLite(sql, [wechatOpenId]);
+      return rows[0] || null;
+    }
+    if (this.type === 'mysql') {
+      const [rows] = await this.pool.execute(sql, [wechatOpenId]);
+      return rows[0] || null;
+    }
+
+    const result = await this.pool.query(this.toPgPlaceholders(sql), [wechatOpenId]);
+    return result.rows[0] || null;
+  }
+
+  async createAuthUserWithProfile({
+    username,
+    email = null,
+    phone = null,
+    wechatOpenId = null,
+    wechatUnionId = null,
+    wechatNickname = null,
+    wechatAvatarUrl = null,
+    passwordHash,
+    role = 'USER',
+    plan = 'FREE',
+    libraryPermissions = [],
+  }) {
     const normalizedPermissions = JSON.stringify(
       Array.isArray(libraryPermissions)
         ? [...new Set(libraryPermissions.map((x) => String(x).trim()).filter(Boolean))]
         : []
     );
     const sql = `
-      INSERT INTO app_users (username, email, phone, password_hash, role, plan, library_permissions)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO app_users (
+        username, email, phone, wechat_openid, wechat_unionid, wechat_nickname, wechat_avatar_url, password_hash, role, plan, library_permissions
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-    const params = [username, email, phone, passwordHash, role, plan, normalizedPermissions];
+    const params = [
+      username,
+      email,
+      phone,
+      wechatOpenId,
+      wechatUnionId,
+      wechatNickname,
+      wechatAvatarUrl,
+      passwordHash,
+      role,
+      plan,
+      normalizedPermissions,
+    ];
 
     if (this.type === 'sqlite') {
       const result = await this.runWithChanges(sql, params);
@@ -1254,10 +1329,57 @@ class DatabaseService {
     }
 
     const result = await this.pool.query(
-      'INSERT INTO app_users (username, email, phone, password_hash, role, plan, library_permissions) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+      'INSERT INTO app_users (username, email, phone, wechat_openid, wechat_unionid, wechat_nickname, wechat_avatar_url, password_hash, role, plan, library_permissions) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id',
       params
     );
     return result.rows[0]?.id;
+  }
+
+  async updateAuthUserIdentityById(
+    userId,
+    {
+      username,
+      email,
+      phone,
+      wechatOpenId,
+      wechatUnionId,
+      wechatNickname,
+      wechatAvatarUrl,
+    } = {}
+  ) {
+    const updates = [];
+    const params = [];
+    const pushField = (field, value) => {
+      if (typeof value === 'undefined') return;
+      updates.push(`${field} = ?`);
+      params.push(value);
+    };
+
+    pushField('username', username);
+    pushField('email', email);
+    pushField('phone', phone);
+    pushField('wechat_openid', wechatOpenId);
+    pushField('wechat_unionid', wechatUnionId);
+    pushField('wechat_nickname', wechatNickname);
+    pushField('wechat_avatar_url', wechatAvatarUrl);
+
+    if (!updates.length) return;
+
+    const sql = `UPDATE app_users SET ${updates.join(', ')} WHERE id = ?`;
+    params.push(userId);
+
+    if (this.type === 'sqlite') {
+      await this.runWithChanges(sql, params);
+      return;
+    }
+    if (this.type === 'mysql') {
+      await this.pool.execute(sql, params);
+      return;
+    }
+
+    let index = 0;
+    const pgSql = sql.replace(/\?/g, () => `$${++index}`);
+    await this.pool.query(pgSql, params);
   }
 
   async updateAuthUserPlan(userId, plan) {
@@ -1299,7 +1421,7 @@ class DatabaseService {
 
   async listAuthUsers() {
     const sql = `
-      SELECT id, username, email, phone, role, plan, library_permissions, status, created_at
+      SELECT id, username, email, phone, wechat_openid, wechat_unionid, wechat_nickname, wechat_avatar_url, role, plan, library_permissions, status, created_at
       FROM app_users
       ORDER BY created_at DESC
     `;

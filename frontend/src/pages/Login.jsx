@@ -1,38 +1,80 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
+  ArrowRight,
   Database,
   Eye,
   EyeOff,
-  User,
   Lock,
-  ArrowRight,
-  CheckCircle2
+  Mail,
+  QrCode,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authAPI } from '../utils/api';
 
-const Login = () => {
-  const PHONE_REGEX = /^1\d{10}$/;
-  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d~!@#$%^&*()_+\-=[\]{}|;:'",.<>/?]{8,20}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d~!@#$%^&*()_+\-=[\]{}|;:'",.<>/?]{8,20}$/;
+const WECHAT_SCRIPT_ID = 'offersql-wechat-login-sdk';
+const WECHAT_SCRIPT_SRC = 'https://res.wx.qq.com/connect/zh_CN/htmledition/js/wxLogin.js';
 
-  const navigate = useNavigate();
-  const [formData, setFormData] = useState({
-    account: '',
-    phone: '',
-    email: '',
-    password: '',
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function loadWechatLoginScript() {
+  if (window.WxLogin) {
+    return Promise.resolve();
+  }
+
+  const existingScript = document.getElementById(WECHAT_SCRIPT_ID);
+  if (existingScript) {
+    return new Promise((resolve, reject) => {
+      existingScript.addEventListener('load', resolve, { once: true });
+      existingScript.addEventListener('error', reject, { once: true });
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.id = WECHAT_SCRIPT_ID;
+    script.src = WECHAT_SCRIPT_SRC;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = reject;
+    document.body.appendChild(script);
   });
+}
+
+const fieldBaseClassName =
+  'block w-full rounded-2xl border border-slate-200 bg-white pl-12 pr-12 py-3.5 text-[15px] text-slate-900 shadow-sm shadow-slate-200/40 placeholder:text-slate-400 focus:border-teal-500 focus:outline-none focus:ring-4 focus:ring-teal-500/10';
+
+const Login = () => {
+  const navigate = useNavigate();
+  const wechatContainerId = useMemo(
+    () => `wechat-login-container-${Math.random().toString(36).slice(2, 10)}`,
+    []
+  );
+  const hasRenderedWechatRef = useRef(false);
+
   const [mode, setMode] = useState('login');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [focusedField, setFocusedField] = useState(null);
   const [loginError, setLoginError] = useState('');
-  const [registerErrors, setRegisterErrors] = useState({
-    phone: '',
+  const [formData, setFormData] = useState({
     email: '',
     password: '',
+  });
+  const [registerErrors, setRegisterErrors] = useState({
+    email: '',
+    password: '',
+  });
+  const [wechatConfig, setWechatConfig] = useState({
+    loading: true,
+    enabled: false,
+    appid: '',
+    callbackUrl: '',
+    state: '',
+    error: '',
   });
 
   useEffect(() => {
@@ -42,36 +84,125 @@ const Login = () => {
   }, [navigate]);
 
   useEffect(() => {
+    let mounted = true;
+
+    const initWechat = async () => {
+      try {
+        const response = await authAPI.getWechatConfig();
+        if (!mounted) return;
+
+        if (!response?.success) {
+          throw new Error('获取微信登录配置失败');
+        }
+
+        const config = response.data || {};
+        if (!config.enabled) {
+          setWechatConfig({
+            loading: false,
+            enabled: false,
+            appid: '',
+            callbackUrl: '',
+            state: '',
+            error: '',
+          });
+          return;
+        }
+
+        setWechatConfig({
+          loading: false,
+          enabled: true,
+          appid: config.appid,
+          callbackUrl: config.callbackUrl,
+          state: config.state,
+          error: '',
+        });
+      } catch (error) {
+        if (!mounted) return;
+        setWechatConfig({
+          loading: false,
+          enabled: false,
+          appid: '',
+          callbackUrl: '',
+          state: '',
+          error: error?.response?.data?.error || error.message || '微信登录暂不可用',
+        });
+      }
+    };
+
+    initWechat();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!wechatConfig.enabled || !wechatConfig.appid || !wechatConfig.state || mode !== 'login') {
+      return undefined;
+    }
+    if (hasRenderedWechatRef.current) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const renderWechatLogin = async () => {
+      try {
+        await loadWechatLoginScript();
+        if (cancelled || !window.WxLogin) {
+          return;
+        }
+
+        const redirectUri = encodeURIComponent(wechatConfig.callbackUrl);
+        const container = document.getElementById(wechatContainerId);
+        if (!container) {
+          return;
+        }
+
+        container.innerHTML = '';
+        hasRenderedWechatRef.current = true;
+        new window.WxLogin({
+          self_redirect: false,
+          id: wechatContainerId,
+          appid: wechatConfig.appid,
+          scope: 'snsapi_login',
+          redirect_uri: redirectUri,
+          state: wechatConfig.state,
+          style: 'black',
+          href: '',
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setWechatConfig((prev) => ({
+            ...prev,
+            enabled: false,
+            error: '微信扫码组件加载失败，请稍后重试',
+          }));
+        }
+      }
+    };
+
+    renderWechatLogin();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, wechatConfig, wechatContainerId]);
+
+  useEffect(() => {
     if (mode === 'login') {
-      setRegisterErrors({ phone: '', email: '', password: '' });
+      setRegisterErrors({ email: '', password: '' });
+    } else {
+      hasRenderedWechatRef.current = false;
     }
   }, [mode]);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    if (loginError) {
-      setLoginError('');
-    }
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-
-    if (mode === 'register' && ['phone', 'email', 'password'].includes(name)) {
-      setRegisterErrors((prev) => ({
-        ...prev,
-        [name]: validateRegisterField(name, value),
-      }));
-    }
+  const persistAuth = (response) => {
+    localStorage.setItem('auth_token', response.data.token);
+    localStorage.setItem('user', JSON.stringify(response.data.user));
+    localStorage.setItem('isLoggedIn', 'true');
   };
 
   const validateRegisterField = (name, value) => {
     const trimmed = String(value || '').trim();
-    if (name === 'phone') {
-      if (!trimmed) return '请输入手机号';
-      if (!PHONE_REGEX.test(trimmed)) return '手机号格式不正确（11位，以1开头）';
-      return '';
-    }
     if (name === 'email') {
       if (!trimmed) return '请输入邮箱';
       if (!EMAIL_REGEX.test(trimmed)) return '邮箱格式不正确';
@@ -79,7 +210,7 @@ const Login = () => {
     }
     if (name === 'password') {
       if (!trimmed) return '请输入密码';
-      if (!PASSWORD_REGEX.test(trimmed)) return '密码需8-20位，且包含字母和数字';
+      if (!PASSWORD_REGEX.test(trimmed)) return '密码需 8-20 位，且包含字母和数字';
       return '';
     }
     return '';
@@ -87,7 +218,6 @@ const Login = () => {
 
   const validateRegisterForm = () => {
     const errors = {
-      phone: validateRegisterField('phone', formData.phone),
       email: validateRegisterField('email', formData.email),
       password: validateRegisterField('password', formData.password),
     };
@@ -95,10 +225,22 @@ const Login = () => {
     return !Object.values(errors).some(Boolean);
   };
 
-  const persistAuth = (response) => {
-    localStorage.setItem('auth_token', response.data.token);
-    localStorage.setItem('user', JSON.stringify(response.data.user));
-    localStorage.setItem('isLoggedIn', 'true');
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    if (loginError) {
+      setLoginError('');
+    }
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+
+    if (mode === 'register' && ['email', 'password'].includes(name)) {
+      setRegisterErrors((prev) => ({
+        ...prev,
+        [name]: validateRegisterField(name, value),
+      }));
+    }
   };
 
   const handleGuestLogin = async () => {
@@ -111,8 +253,7 @@ const Login = () => {
       toast.success('已进入游客模式，仅可浏览');
       navigate('/app');
     } catch (error) {
-      const message = error?.response?.data?.error || '游客登录失败';
-      setLoginError(message);
+      setLoginError(error?.response?.data?.error || '游客登录失败');
     } finally {
       setIsLoading(false);
     }
@@ -122,17 +263,13 @@ const Login = () => {
     e.preventDefault();
     setLoginError('');
 
-    if (mode === 'login' && (!formData.account || !formData.password)) {
-      toast.error('请填写手机号和密码');
-      return;
-    }
-    if (mode === 'register' && (!formData.phone || !formData.password || !formData.email)) {
-      toast.error('请填写手机号、邮箱和密码');
+    const email = normalizeEmail(formData.email);
+    if (!email || !formData.password) {
+      toast.error('请填写邮箱和密码');
       return;
     }
     if (mode === 'register' && !validateRegisterForm()) {
       const firstError = [
-        validateRegisterField('phone', formData.phone),
         validateRegisterField('email', formData.email),
         validateRegisterField('password', formData.password),
       ].find(Boolean) || '请检查注册信息';
@@ -142,11 +279,10 @@ const Login = () => {
 
     setIsLoading(true);
     try {
-      const request = mode === 'register'
-        ? authAPI.register(formData.phone, formData.password, formData.email)
-        : authAPI.login(formData.account, formData.password);
+      const response = mode === 'register'
+        ? await authAPI.register(email, formData.password)
+        : await authAPI.login(email, formData.password);
 
-      const response = await request;
       if (!response.success) return;
 
       persistAuth(response);
@@ -155,252 +291,225 @@ const Login = () => {
     } catch (error) {
       const fallback = mode === 'register'
         ? '注册失败，请稍后重试'
-        : '登录失败，请检查手机号和密码后重试';
-      const message = error?.response?.data?.error || fallback;
-      setLoginError(message);
+        : '登录失败，请检查邮箱和密码后重试';
+      setLoginError(error?.response?.data?.error || fallback);
     } finally {
       setIsLoading(false);
     }
   };
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 via-cyan-50 to-amber-50 py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-36 -left-28 w-[30rem] h-[30rem] bg-cyan-200 rounded-full mix-blend-multiply blur-3xl opacity-30 animate-pulse" />
-        <div className="absolute -bottom-40 -right-24 w-[30rem] h-[30rem] bg-amber-200 rounded-full mix-blend-multiply blur-3xl opacity-30 animate-pulse" style={{ animationDelay: '2s' }} />
+  const renderWechatPanel = () => (
+    <div className="rounded-[28px] border border-slate-200 bg-slate-50/80 p-5">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+          <QrCode className="h-5 w-5" />
+        </div>
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">微信扫码登录</h2>
+          <p className="mt-1 text-sm text-slate-500">打开微信扫一扫，快速回到练习区。</p>
+        </div>
       </div>
 
-      <div
-        className="absolute inset-0 opacity-[0.02]"
-        style={{
-          backgroundImage: `
-            linear-gradient(to right, #0f766e 1px, transparent 1px),
-            linear-gradient(to bottom, #0f766e 1px, transparent 1px)
-          `,
-          backgroundSize: '56px 56px'
-        }}
-      />
+      <div className="rounded-[24px] border border-slate-200 bg-white p-4 min-h-[360px] flex flex-col">
+        {wechatConfig.loading && (
+          <div className="flex flex-1 flex-col items-center justify-center text-center">
+            <div className="mb-4 h-8 w-8 rounded-full border-2 border-emerald-200 border-t-emerald-500 animate-spin" />
+            <p className="text-sm text-slate-600">正在加载微信登录...</p>
+          </div>
+        )}
 
-      <div className="max-w-md w-full space-y-7 relative z-10">
-        {/* Logo 区域 */}
-        <div className="text-center">
-          <div className="mx-auto h-16 w-16 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-2xl flex items-center justify-center shadow-lg shadow-cyan-500/30 mb-6 transform hover:scale-105 transition-transform duration-300">
-            <Database className="h-8 w-8 text-white" />
+        {!wechatConfig.loading && !wechatConfig.enabled && (
+          <div className="flex flex-1 flex-col items-center justify-center px-4 text-center">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+              <QrCode className="h-6 w-6" />
+            </div>
+            <p className="text-sm font-medium text-slate-700">当前环境暂不可用</p>
+            <p className="mt-2 text-xs leading-6 text-slate-500">
+              {wechatConfig.error || '请稍后重试微信登录。'}
+            </p>
           </div>
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-700 mb-3">OfferSQL</p>
-          <h2 className="text-3xl font-bold bg-gradient-to-r from-slate-900 via-teal-900 to-cyan-900 bg-clip-text text-transparent">
-            手撕 SQL，冲刺 Offer
-          </h2>
-          <p className="mt-3 text-gray-600 leading-relaxed">
-            专注 SQL 面试训练的实战平台，覆盖手撕 SQL、面试真题、大厂题库。
-          </p>
-          <div className="mt-4 flex flex-wrap justify-center gap-2">
-            {['手撕 SQL', '面试真题', '大厂题库'].map((tag) => (
-              <span key={tag} className="px-3 py-1 rounded-full text-xs font-semibold bg-white/80 text-teal-700 border border-teal-100 shadow-sm">
-                {tag}
-              </span>
-            ))}
+        )}
+
+        {!wechatConfig.loading && wechatConfig.enabled && (
+          <>
+            <div
+              id={wechatContainerId}
+              className="flex flex-1 items-center justify-center overflow-hidden rounded-[20px] bg-white"
+            />
+            <p className="mt-4 text-center text-xs leading-6 text-slate-500">
+              扫码确认后会自动进入你的练习区。
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-[linear-gradient(180deg,_#f7fbfb_0%,_#f8fbff_54%,_#fbfcf8_100%)] px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-4xl">
+        <div className="mb-7 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 shadow-md shadow-cyan-500/20">
+            <Database className="h-7 w-7 text-white" />
           </div>
+          <p className="mb-2 text-sm font-semibold text-teal-700">OfferSQL</p>
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-900">欢迎回来</h1>
+          <p className="mt-2 text-sm text-slate-500">继续你的 SQL 练习</p>
         </div>
 
-        {/* 登录表单 */}
-        <div className="bg-white/85 backdrop-blur-xl rounded-3xl shadow-xl shadow-slate-300/50 p-8 border border-white/60">
-          <div className="flex gap-2 mb-6 p-1 bg-slate-100 rounded-xl">
-            <button
-              type="button"
-              onClick={() => setMode('login')}
-              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                mode === 'login' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500'
-              }`}
-            >
-              登录
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('register')}
-              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                mode === 'register' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500'
-              }`}
-            >
-              注册
-            </button>
-          </div>
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            {loginError && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {loginError}
-              </div>
-            )}
-            {/* 手机号输入 */}
-            <div className="relative">
-              <label
-                htmlFor={mode === 'register' ? 'phone' : 'account'}
-                className={`absolute left-12 transition-all duration-200 pointer-events-none ${
-                  focusedField === (mode === 'register' ? 'phone' : 'account')
-                    || (mode === 'register' ? formData.phone : formData.account)
-                    ? '-top-2 text-xs text-teal-700 bg-white px-1'
-                    : 'top-3.5 text-gray-400'
-                }`}
-              >
-                手机号
-              </label>
-              <div className="absolute left-4 top-3.5 text-gray-400">
-                <User className="h-5 w-5" />
-              </div>
-              <input
-                id={mode === 'register' ? 'phone' : 'account'}
-                name={mode === 'register' ? 'phone' : 'account'}
-                type="text"
-                value={mode === 'register' ? formData.phone : formData.account}
-                onChange={handleChange}
-                onFocus={() => setFocusedField(mode === 'register' ? 'phone' : 'account')}
-                onBlur={() => setFocusedField(null)}
-                maxLength={mode === 'register' ? 11 : 64}
-                inputMode={mode === 'register' ? 'numeric' : 'text'}
-                className="block w-full pl-12 pr-4 py-3.5 border-2 border-gray-100 rounded-xl text-gray-900 placeholder-transparent focus:outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all duration-200 bg-gray-50/50"
-                placeholder="手机号"
-              />
-              {mode === 'register' && registerErrors.phone && (
-                <p className="mt-2 text-xs text-red-600">{registerErrors.phone}</p>
-              )}
-            </div>
-
-            {/* 密码输入 */}
-            {mode === 'register' && (
-              <div className="relative">
-                <label
-                  htmlFor="email"
-                  className={`absolute left-12 transition-all duration-200 pointer-events-none ${
-                    focusedField === 'email' || formData.email
-                      ? '-top-2 text-xs text-teal-700 bg-white px-1'
-                      : 'top-3.5 text-gray-400'
+        <div className="overflow-hidden rounded-[28px] border border-white/80 bg-white/90 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+          <div className="grid">
+            <section className="p-6 sm:p-8">
+              <div className="mb-8 flex w-full rounded-2xl bg-slate-100 p-1.5">
+                <button
+                  type="button"
+                  onClick={() => setMode('login')}
+                  className={`h-12 flex-1 rounded-xl text-sm font-semibold transition-all ${
+                    mode === 'login'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
-                  邮箱
-                </label>
-                <div className="absolute left-4 top-3.5 text-gray-400">
-                  <User className="h-5 w-5" />
-                </div>
-                <input
-                  id="email"
-                  name="email"
-                  type="text"
-                  value={formData.email}
-                  onChange={handleChange}
-                  onFocus={() => setFocusedField('email')}
-                  onBlur={() => setFocusedField(null)}
-                  className="block w-full pl-12 pr-4 py-3.5 border-2 border-gray-100 rounded-xl text-gray-900 placeholder-transparent focus:outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all duration-200 bg-gray-50/50"
-                  placeholder="邮箱"
-                />
-                {registerErrors.email && (
-                  <p className="mt-2 text-xs text-red-600">{registerErrors.email}</p>
-                )}
-              </div>
-            )}
-
-            {/* 密码输入 */}
-            <div className="relative">
-              <label
-                htmlFor="password"
-                className={`absolute left-12 transition-all duration-200 pointer-events-none ${
-                  focusedField === 'password' || formData.password
-                    ? '-top-2 text-xs text-teal-700 bg-white px-1'
-                    : 'top-3.5 text-gray-400'
-                }`}
-              >
-                密码
-              </label>
-              <div className="absolute left-4 top-3.5 text-gray-400">
-                <Lock className="h-5 w-5" />
-              </div>
-              <input
-                id="password"
-                name="password"
-                type={showPassword ? 'text' : 'password'}
-                value={formData.password}
-                onChange={handleChange}
-                onFocus={() => setFocusedField('password')}
-                onBlur={() => setFocusedField(null)}
-                className="block w-full pl-12 pr-12 py-3.5 border-2 border-gray-100 rounded-xl text-gray-900 placeholder-transparent focus:outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all duration-200 bg-gray-50/50"
-                placeholder="密码"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-3.5 text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                {showPassword ? (
-                  <EyeOff className="h-5 w-5" />
-                ) : (
-                  <Eye className="h-5 w-5" />
-                )}
-              </button>
-              {mode === 'register' && registerErrors.password && (
-                <p className="mt-2 text-xs text-red-600">{registerErrors.password}</p>
-              )}
-              {mode === 'register' && !registerErrors.password && (
-                <p className="mt-2 text-xs text-slate-500">密码需 8-20 位，至少包含字母和数字</p>
-              )}
-            </div>
-
-            {mode === 'login' && (
-              <div className="flex justify-end -mt-2">
-                <Link
-                  to="/forgot-password"
-                  className="text-sm text-teal-700 hover:text-teal-800 font-medium"
+                  登录
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('register')}
+                  className={`h-12 flex-1 rounded-xl text-sm font-semibold transition-all ${
+                    mode === 'register'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
                 >
-                  忘记密码？
-                </Link>
+                  注册
+                </button>
               </div>
-            )}
 
-
-            {/* 登录按钮 */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="group relative w-full flex justify-center py-4 px-4 border border-transparent text-sm font-semibold rounded-xl text-white bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 focus:outline-none focus:ring-4 focus:ring-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-cyan-500/30 hover:shadow-xl hover:shadow-cyan-500/40 hover:-translate-y-0.5"
-            >
-              {isLoading ? (
-                <div className="flex items-center">
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
-                  处理中...
+              <div className={`${mode === 'login' ? 'max-w-none' : 'mx-auto max-w-xl'}`}>
+                <div className="mb-6">
+                  <h2 className="text-2xl font-semibold text-slate-900">
+                    {mode === 'login' ? '邮箱登录' : '创建邮箱账号'}
+                  </h2>
                 </div>
-              ) : (
-                <div className="flex items-center">
-                  {mode === 'register' ? '注册并登录' : '登录'}
-                  <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+
+                {loginError && (
+                  <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    {loginError}
+                  </div>
+                )}
+
+                <div className={`grid gap-8 ${mode === 'login' ? 'lg:grid-cols-[minmax(0,1fr)_300px]' : 'lg:grid-cols-1'}`}>
+                  <div>
+                    <form className="space-y-5" onSubmit={handleSubmit}>
+                      <div>
+                        <label htmlFor="email" className="mb-2 block text-sm font-medium text-slate-700">
+                          邮箱
+                        </label>
+                        <div className="relative">
+                          <Mail className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                          <input
+                            id="email"
+                            name="email"
+                            type="email"
+                            autoComplete={mode === 'login' ? 'email' : 'new-email'}
+                            value={formData.email}
+                            onChange={handleChange}
+                            className={`${fieldBaseClassName} pr-4`}
+                            placeholder="you@example.com"
+                          />
+                        </div>
+                        {mode === 'register' && registerErrors.email && (
+                          <p className="mt-2 text-xs text-rose-600">{registerErrors.email}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="mb-2 flex items-center justify-between">
+                          <label htmlFor="password" className="block text-sm font-medium text-slate-700">
+                            密码
+                          </label>
+                          {mode === 'login' && (
+                            <Link
+                              to="/forgot-password"
+                              className="text-sm font-medium text-teal-700 hover:text-teal-800"
+                            >
+                              忘记密码？
+                            </Link>
+                          )}
+                        </div>
+                        <div className="relative">
+                          <Lock className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                          <input
+                            id="password"
+                            name="password"
+                            type={showPassword ? 'text' : 'password'}
+                            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                            value={formData.password}
+                            onChange={handleChange}
+                            className={fieldBaseClassName}
+                            placeholder={mode === 'login' ? '输入密码' : '8-20 位，包含字母和数字'}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((prev) => !prev)}
+                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-600"
+                          >
+                            {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                          </button>
+                        </div>
+                        {mode === 'register' && registerErrors.password && (
+                          <p className="mt-2 text-xs text-rose-600">{registerErrors.password}</p>
+                        )}
+                        {mode === 'register' && !registerErrors.password && (
+                          <p className="mt-2 text-xs text-slate-500">密码需 8-20 位，且至少包含字母和数字。</p>
+                        )}
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={isLoading}
+                        className="group flex h-[52px] w-full items-center justify-center rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white transition-all hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-900/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isLoading ? (
+                          <div className="flex items-center">
+                            <div className="mr-2 h-5 w-5 rounded-full border-2 border-white/25 border-t-white animate-spin" />
+                            处理中...
+                          </div>
+                        ) : (
+                          <div className="flex items-center">
+                            {mode === 'register' ? '注册并开始练习' : '登录'}
+                            <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
+                          </div>
+                        )}
+                      </button>
+                    </form>
+
+                    <div className="mt-5 flex items-center justify-between gap-4 text-sm">
+                      <button
+                        type="button"
+                        onClick={handleGuestLogin}
+                        disabled={isLoading}
+                        className="font-medium text-slate-500 transition-colors hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        先随便看看
+                      </button>
+                    </div>
+                  </div>
+
+                  {mode === 'login' && (
+                    <div className="lg:pl-2">
+                      <div className="mb-4 hidden items-center gap-3 lg:flex">
+                        <div className="h-px flex-1 bg-slate-200" />
+                        <span className="text-xs font-medium tracking-[0.18em] text-slate-400">或</span>
+                        <div className="h-px flex-1 bg-slate-200" />
+                      </div>
+                      {renderWechatPanel()}
+                    </div>
+                  )}
                 </div>
-              )}
-            </button>
-          </form>
-
-          <button
-            type="button"
-            onClick={handleGuestLogin}
-            disabled={isLoading}
-            className="mt-4 w-full py-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-600 text-sm font-medium hover:bg-slate-100 transition-colors disabled:opacity-50"
-          >
-            游客浏览模式（只看不做）
-          </button>
-
-        </div>
-
-        {/* 特性展示 */}
-        <div className="grid grid-cols-3 gap-4 mt-8">
-          {[
-            { icon: Database, text: '手撕 SQL' },
-            { icon: CheckCircle2, text: '面试真题' },
-            { icon: ArrowRight, text: '大厂题库' }
-          ].map((feature, index) => (
-            <div
-              key={index}
-              className="flex flex-col items-center text-center p-4 rounded-xl bg-white/55 backdrop-blur-sm border border-white/70"
-            >
-              <feature.icon className="h-6 w-6 text-teal-600 mb-2" />
-              <span className="text-xs text-gray-600 font-medium">{feature.text}</span>
-            </div>
-          ))}
+              </div>
+            </section>
+          </div>
         </div>
       </div>
     </div>

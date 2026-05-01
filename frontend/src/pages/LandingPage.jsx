@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import {
   Database, BarChart2, GitMerge, TrendingUp, Layers,
   Users, ShoppingCart, Radio, Heart, ArrowRight,
-  CheckCircle, Star, Zap, BookOpen, Award, Target,
+  Star, Zap, BookOpen, Award, Target,
   Code2, Briefcase, GraduationCap, DollarSign, MapPin, Film
 } from 'lucide-react';
 import { authAPI } from '../utils/api';
@@ -80,22 +80,17 @@ const HeroSection = ({ onStart, onGuest, loading }) => (
     />
 
     <div className="relative z-10 max-w-4xl mx-auto px-6 text-center">
-      <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-teal-700 text-sm font-semibold mb-8">
-        <Star className="w-4 h-4 fill-teal-500 text-teal-500" />
-        互联网大厂 SQL 真题库 · 专为秋招实习打造
-      </div>
-
       <h1 className="text-5xl sm:text-6xl font-extrabold text-gray-900 leading-tight mb-6">
-        大厂 SQL 真题
+        手撕SQL
         <br />
         <span className="bg-gradient-to-r from-teal-600 to-cyan-600 bg-clip-text text-transparent">
-          刷出 Offer
+          冲刺Offer
         </span>
       </h1>
 
       <p className="text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed mb-10">
-        覆盖字节、美团、滴滴等大厂高频面试场景，在线 SQL 编辑器实时运行验证，
-        从入门到进阶系统训练，助你拿下数据岗 Offer。
+        收录字节、美团、滴滴等大厂真实 SQL 面试原题，在线编写即可运行，执行结果实时反馈。
+        以真题驱动训练，在实战中掌握核心 SQL 技能，提升面试通过率，助力斩获 Offer。
       </p>
 
       <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -114,10 +109,6 @@ const HeroSection = ({ onStart, onGuest, loading }) => (
         </button>
       </div>
 
-      <p className="mt-6 text-sm text-gray-500 flex items-center justify-center gap-1.5">
-        <CheckCircle className="w-4 h-4 text-teal-500" />
-        前 15 道入门题永久免费，无需付费即可上手
-      </p>
     </div>
   </section>
 );
@@ -197,12 +188,6 @@ const categories = [
     desc: '次日 / 7 日 / 30 日留存漏斗，经典大厂必考题',
     tags: ['中等', '困难'],
   },
-  {
-    icon: Heart,
-    name: '社交关系',
-    desc: '关注 / 粉丝 / 共同好友等图关系分析',
-    tags: ['中等', '困难'],
-  },
 ];
 
 const CategorySection = () => (
@@ -210,7 +195,7 @@ const CategorySection = () => (
     <div className="max-w-6xl mx-auto px-6">
       <SectionHeader
         badge="题型覆盖"
-        title="7 大核心题型，系统覆盖"
+        title="6 大核心题型，系统覆盖"
         sub="从 SQL 基础到高阶窗口函数，精准对齐大厂数据岗面试考点"
       />
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-12">

@@ -7,11 +7,16 @@ function signToken(payload) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
 
+function signTokenWithExpires(payload, expiresIn) {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn });
+}
+
 function verifyToken(token) {
   return jwt.verify(token, JWT_SECRET);
 }
 
 module.exports = {
   signToken,
+  signTokenWithExpires,
   verifyToken,
 };

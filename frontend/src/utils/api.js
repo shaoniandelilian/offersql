@@ -94,9 +94,10 @@ export const commentsAPI = {
 };
 
 export const authAPI = {
-  login: (username, password) => api.post('/auth/login', { username, password }),
-  register: (phone, password, email) => api.post('/auth/register', { phone, password, email }),
+  login: (email, password) => api.post('/auth/login', { email, password }),
+  register: (email, password) => api.post('/auth/register', { email, password }),
   guestLogin: () => api.post('/auth/guest-login'),
+  getWechatConfig: () => api.get('/auth/wechat/config'),
   me: () => api.get('/auth/me'),
   sendResetCode: (email) => api.post('/auth/password-reset/send-code', { email }),
   confirmResetPassword: (email, code, newPassword) =>
