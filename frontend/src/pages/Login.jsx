@@ -11,38 +11,13 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { authAPI } from '../utils/api';
+import { loadWechatLoginScript } from '../utils/wechatLogin';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d~!@#$%^&*()_+\-=[\]{}|;:'",.<>/?]{8,20}$/;
-const WECHAT_SCRIPT_ID = 'offersql-wechat-login-sdk';
-const WECHAT_SCRIPT_SRC = 'https://res.wx.qq.com/connect/zh_CN/htmledition/js/wxLogin.js';
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
-}
-
-function loadWechatLoginScript() {
-  if (window.WxLogin) {
-    return Promise.resolve();
-  }
-
-  const existingScript = document.getElementById(WECHAT_SCRIPT_ID);
-  if (existingScript) {
-    return new Promise((resolve, reject) => {
-      existingScript.addEventListener('load', resolve, { once: true });
-      existingScript.addEventListener('error', reject, { once: true });
-    });
-  }
-
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.id = WECHAT_SCRIPT_ID;
-    script.src = WECHAT_SCRIPT_SRC;
-    script.async = true;
-    script.onload = resolve;
-    script.onerror = reject;
-    document.body.appendChild(script);
-  });
 }
 
 const fieldBaseClassName =

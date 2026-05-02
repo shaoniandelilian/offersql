@@ -36,9 +36,11 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
+    const suppressErrorToast = Boolean(error.config?.suppressErrorToast);
+
     if (error.response?.status === 401) {
       clearAuthState();
-      if (window.location.pathname !== '/login') {
+      if (!suppressErrorToast && window.location.pathname !== '/login') {
         toast.error('登录已过期，请重新登录');
         window.location.href = '/login';
       }
@@ -46,7 +48,9 @@ api.interceptors.response.use(
     }
 
     const message = error.response?.data?.error || '请求失败';
-    toast.error(message);
+    if (!suppressErrorToast) {
+      toast.error(message);
+    }
     return Promise.reject(error);
   }
 );
@@ -94,14 +98,14 @@ export const commentsAPI = {
 };
 
 export const authAPI = {
-  login: (email, password) => api.post('/auth/login', { email, password }),
-  register: (email, password) => api.post('/auth/register', { email, password }),
+  login: (email, password, config = {}) => api.post('/auth/login', { email, password }, config),
+  register: (email, password, config = {}) => api.post('/auth/register', { email, password }, config),
   guestLogin: () => api.post('/auth/guest-login'),
   getWechatConfig: () => api.get('/auth/wechat/config'),
   me: () => api.get('/auth/me'),
-  sendResetCode: (email) => api.post('/auth/password-reset/send-code', { email }),
-  confirmResetPassword: (email, code, newPassword) =>
-    api.post('/auth/password-reset/confirm', { email, code, newPassword }),
+  sendResetCode: (email, config = {}) => api.post('/auth/password-reset/send-code', { email }, config),
+  confirmResetPassword: (email, code, newPassword, config = {}) =>
+    api.post('/auth/password-reset/confirm', { email, code, newPassword }, config),
 };
 
 export const questionsAPI = {

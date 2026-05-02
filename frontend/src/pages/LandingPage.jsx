@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
@@ -16,6 +16,7 @@ import {
   Layers,
   LineChart,
   Play,
+  QrCode,
   ShieldCheck,
   Star,
   Table2,
@@ -24,9 +25,12 @@ import {
   TrendingUp,
   Trophy,
   Users,
+  X,
   Zap,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { authAPI } from '../utils/api';
+import { loadWechatLoginScript } from '../utils/wechatLogin';
 
 const isLoggedIn = () =>
   localStorage.getItem('isLoggedIn') === 'true' &&
@@ -222,7 +226,7 @@ const SectionTitle = ({ eyebrow, title, desc, align = 'center', inverted = false
   </div>
 );
 
-const Navbar = ({ loggedIn, onStart, onRegister }) => {
+const Navbar = ({ loggedIn, onStart, onLogin, onRegister }) => {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -273,7 +277,7 @@ const Navbar = ({ loggedIn, onStart, onRegister }) => {
             <>
               <button
                 type="button"
-                onClick={onStart}
+                onClick={onLogin}
                 className="inline-flex h-10 items-center justify-center rounded-lg border border-white/14 px-4 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-cyan-100"
               >
                 登录
@@ -281,7 +285,7 @@ const Navbar = ({ loggedIn, onStart, onRegister }) => {
               <button
                 type="button"
                 onClick={onRegister}
-                className="hidden h-10 items-center justify-center rounded-lg bg-cyan-300 px-4 text-sm font-black text-slate-950 shadow-[0_12px_28px_rgba(34,211,238,0.2)] transition hover:-translate-y-0.5 hover:bg-cyan-200 sm:inline-flex"
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-cyan-300 px-3 text-sm font-black text-slate-950 shadow-[0_12px_28px_rgba(34,211,238,0.2)] transition hover:-translate-y-0.5 hover:bg-cyan-200 sm:px-4"
               >
                 立即注册
               </button>
@@ -290,6 +294,584 @@ const Navbar = ({ loggedIn, onStart, onRegister }) => {
         </div>
       </div>
     </header>
+  );
+};
+
+const getAuthPayload = (response) => response?.data || response || {};
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const AuthModal = ({ open, mode, onClose, onModeChange, onSuccess }) => {
+  const [formData, setFormData] = useState({
+    email: '',
+    password: '',
+    code: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const [debugCode, setDebugCode] = useState('');
+  const [error, setError] = useState('');
+  const [authView, setAuthView] = useState('password');
+  const wechatContainerId = useMemo(
+    () => `landing-wechat-login-container-${Math.random().toString(36).slice(2, 10)}`,
+    []
+  );
+  const hasRenderedWechatRef = useRef(false);
+  const [wechatConfig, setWechatConfig] = useState({
+    loading: true,
+    enabled: false,
+    appid: '',
+    callbackUrl: '',
+    state: '',
+    error: '',
+  });
+  const isRegister = mode === 'register';
+  const isForgot = mode === 'forgot';
+  const showWechatLogin = mode === 'login';
+  const isWechatView = showWechatLogin && authView === 'wechat';
+  const modalTitle = isWechatView
+    ? '微信扫码登录'
+    : isForgot
+      ? '找回密码'
+      : isRegister
+        ? '注册 OffersSQL'
+        : '登录 OffersSQL';
+  const modalSubtitle = isWechatView
+    ? '使用微信扫一扫，快速进入练习区'
+    : isForgot
+      ? '通过邮箱验证码重置密码。'
+      : isRegister
+        ? '创建账号，保存你的刷题进度。'
+        : '回到你的 SQL 真题训练工作台。';
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose, open]);
+
+  useEffect(() => {
+    if (!open || countdown <= 0) return undefined;
+    const timer = window.setTimeout(() => setCountdown((prev) => prev - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [countdown, open]);
+
+  useEffect(() => {
+    if (open) {
+      setError('');
+      setDebugCode('');
+      setAuthView('password');
+      hasRenderedWechatRef.current = false;
+      setFormData((prev) => ({
+        email: mode === 'forgot' ? prev.email : '',
+        password: '',
+        code: '',
+        newPassword: '',
+        confirmPassword: '',
+      }));
+    }
+  }, [mode, open]);
+
+  useEffect(() => {
+    if (!open || !isWechatView) {
+      hasRenderedWechatRef.current = false;
+      return undefined;
+    }
+
+    let mounted = true;
+    hasRenderedWechatRef.current = false;
+    setWechatConfig({
+      loading: true,
+      enabled: false,
+      appid: '',
+      callbackUrl: '',
+      state: '',
+      error: '',
+    });
+
+    const initWechat = async () => {
+      try {
+        const response = await authAPI.getWechatConfig();
+        if (!mounted) return;
+
+        if (response?.success === false) {
+          throw new Error(response.error || '获取微信登录配置失败');
+        }
+
+        const config = response?.data || {};
+        if (!config.enabled) {
+          setWechatConfig({
+            loading: false,
+            enabled: false,
+            appid: '',
+            callbackUrl: '',
+            state: '',
+            error: '',
+          });
+          return;
+        }
+
+        setWechatConfig({
+          loading: false,
+          enabled: true,
+          appid: config.appid,
+          callbackUrl: config.callbackUrl,
+          state: config.state,
+          error: '',
+        });
+      } catch (wechatError) {
+        if (!mounted) return;
+        setWechatConfig({
+          loading: false,
+          enabled: false,
+          appid: '',
+          callbackUrl: '',
+          state: '',
+          error: wechatError?.response?.data?.error || wechatError.message || '微信登录暂不可用',
+        });
+      }
+    };
+
+    initWechat();
+    return () => {
+      mounted = false;
+    };
+  }, [open, isWechatView]);
+
+  useEffect(() => {
+    if (
+      !open ||
+      !isWechatView ||
+      !wechatConfig.enabled ||
+      !wechatConfig.appid ||
+      !wechatConfig.state ||
+      hasRenderedWechatRef.current
+    ) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const renderWechatLogin = async () => {
+      try {
+        await loadWechatLoginScript();
+        if (cancelled || !window.WxLogin) {
+          return;
+        }
+
+        const container = document.getElementById(wechatContainerId);
+        if (!container) {
+          return;
+        }
+
+        container.innerHTML = '';
+        hasRenderedWechatRef.current = true;
+        new window.WxLogin({
+          self_redirect: false,
+          id: wechatContainerId,
+          appid: wechatConfig.appid,
+          scope: 'snsapi_login',
+          redirect_uri: encodeURIComponent(wechatConfig.callbackUrl),
+          state: wechatConfig.state,
+          style: 'black',
+          href: '',
+        });
+      } catch (wechatError) {
+        if (!cancelled) {
+          setWechatConfig((prev) => ({
+            ...prev,
+            enabled: false,
+            error: '微信扫码组件加载失败，请稍后重试',
+          }));
+        }
+      }
+    };
+
+    renderWechatLogin();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isWechatView, wechatConfig, wechatContainerId]);
+
+  if (!open) return null;
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    if (error) {
+      setError('');
+    }
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleForgotPassword = () => {
+    onModeChange('forgot');
+  };
+
+  const handleSendResetCode = async () => {
+    const email = formData.email.trim().toLowerCase();
+    if (!emailPattern.test(email)) {
+      setError('请输入正确邮箱');
+      return;
+    }
+
+    setSendingCode(true);
+    setError('');
+    setDebugCode('');
+
+    try {
+      const response = await authAPI.sendResetCode(email, { suppressErrorToast: true });
+      if (response?.success === false) {
+        throw new Error(response.error || '验证码发送失败');
+      }
+      setCountdown(60);
+      if (response?.debugCode) {
+        setDebugCode(response.debugCode);
+      }
+      toast.success('验证码已发送');
+    } catch (sendError) {
+      setError(sendError?.response?.data?.error || sendError?.message || '验证码发送失败，请稍后重试');
+    } finally {
+      setSendingCode(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    const email = formData.email.trim().toLowerCase();
+    if (!emailPattern.test(email)) {
+      setError('请输入正确邮箱');
+      return;
+    }
+    if (!/^\d{6}$/.test(formData.code.trim())) {
+      setError('请输入 6 位验证码');
+      return;
+    }
+    if (formData.newPassword.length < 6) {
+      setError('新密码长度至少 6 位');
+      return;
+    }
+    if (formData.newPassword !== formData.confirmPassword) {
+      setError('两次输入密码不一致');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError('');
+
+    try {
+      const response = await authAPI.confirmResetPassword(
+        email,
+        formData.code.trim(),
+        formData.newPassword,
+        { suppressErrorToast: true }
+      );
+      if (response?.success === false) {
+        throw new Error(response.error || '重置密码失败，请稍后重试');
+      }
+
+      toast.success('密码重置成功，请重新登录');
+      setFormData({
+        email,
+        password: '',
+        code: '',
+        newPassword: '',
+        confirmPassword: '',
+      });
+      setDebugCode('');
+      setCountdown(0);
+      onModeChange('login');
+    } catch (resetError) {
+      setError(resetError?.response?.data?.error || resetError?.message || '重置密码失败，请稍后重试');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (isForgot) {
+      await handleResetPassword();
+      return;
+    }
+
+    const email = formData.email.trim();
+    if (!email || !formData.password) {
+      setError('请填写邮箱和密码');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError('');
+
+    try {
+      const response = isRegister
+        ? await authAPI.register(email, formData.password, { suppressErrorToast: true })
+        : await authAPI.login(email, formData.password, { suppressErrorToast: true });
+      if (response?.success === false) {
+        throw new Error(response.error || (isRegister ? '注册失败，请稍后重试' : '登录失败，请检查邮箱和密码'));
+      }
+
+      const payload = getAuthPayload(response);
+      if (!payload.token) {
+        throw new Error('登录响应缺少 token，请稍后重试');
+      }
+
+      localStorage.setItem('auth_token', payload.token);
+      localStorage.setItem('isLoggedIn', 'true');
+      if (payload.user) {
+        localStorage.setItem('user', JSON.stringify(payload.user));
+      }
+
+      toast.success(isRegister ? '注册成功，已自动登录' : '登录成功');
+      onClose();
+      onSuccess('/app');
+    } catch (submitError) {
+      const fallback = isRegister ? '注册失败，请稍后重试' : '登录失败，请检查邮箱和密码后重试';
+      setError(submitError?.response?.data?.error || submitError?.message || fallback);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const renderWechatView = () => (
+    <div className="space-y-3">
+      <div className="mx-auto flex h-[340px] w-full max-w-[330px] flex-col rounded-2xl bg-white p-4 text-slate-900 shadow-[0_18px_50px_rgba(2,6,23,0.28)]">
+        {wechatConfig.loading && (
+          <div className="flex flex-1 flex-col items-center justify-center text-center">
+            <div className="mb-3 h-7 w-7 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-500" />
+            <p className="text-sm font-medium text-slate-600">正在加载微信登录...</p>
+          </div>
+        )}
+
+        {!wechatConfig.loading && !wechatConfig.enabled && (
+          <div className="flex flex-1 flex-col items-center justify-center px-4 text-center">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
+              <QrCode className="h-6 w-6" />
+            </div>
+            <p className="text-sm font-bold text-slate-700">当前环境暂不可用</p>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              {wechatConfig.error || '请稍后重试微信登录。'}
+            </p>
+          </div>
+        )}
+
+        {!wechatConfig.loading && wechatConfig.enabled && (
+          <>
+            <div
+              id={wechatContainerId}
+              className="mx-auto flex h-[286px] w-full max-w-[300px] flex-1 origin-top scale-[0.9] items-center justify-center overflow-visible rounded-xl bg-white"
+            />
+            {/* <p className="mt-2 text-center text-xs leading-5 text-slate-500">
+              扫码确认后会自动进入你的练习区。
+            </p> */}
+          </>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setAuthView('password')}
+        className="inline-flex h-11 w-full items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] px-4 text-sm font-black text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/40 hover:bg-white/[0.09] hover:text-white"
+      >
+        返回账号密码登录
+      </button>
+    </div>
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 px-4 py-6 backdrop-blur-md"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+      role="presentation"
+    >
+      <div
+        className={`relative w-[calc(100vw-32px)] max-w-[420px] rounded-[24px] border border-white/15 bg-slate-950/90 p-6 text-white shadow-[0_28px_90px_rgba(2,6,23,0.72)] backdrop-blur-2xl ${
+          isWechatView || isForgot
+            ? 'max-h-[calc(100vh-32px)] overflow-y-auto overflow-x-hidden'
+            : 'overflow-hidden'
+        }`}
+      >
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(34,211,238,0.2),transparent_34%),radial-gradient(circle_at_96%_8%,rgba(251,191,36,0.12),transparent_26%)]" />
+        <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/55 to-transparent" />
+        <div className="relative">
+          <div className={`${isWechatView ? 'mb-4' : 'mb-6'} flex items-start justify-between gap-4`}>
+            <div>
+              <p className="text-xs font-black tracking-[0.22em] text-cyan-200">ACCOUNT</p>
+              <h2 className="mt-2 text-[26px] font-black leading-tight tracking-tight">{modalTitle}</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-400">{modalSubtitle}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-slate-300 transition hover:-translate-y-0.5 hover:border-cyan-300/40 hover:bg-white/[0.1] hover:text-white"
+              aria-label="关闭弹窗"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {isWechatView ? (
+            renderWechatView()
+          ) : (
+            <>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold text-slate-300">邮箱</span>
+                  <input
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    className="h-11 w-full rounded-xl border border-white/10 bg-white/[0.07] px-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-300/60 focus:ring-4 focus:ring-cyan-300/10"
+                    placeholder="you@example.com"
+                  />
+                </label>
+
+            {isForgot ? (
+              <>
+                <div className="flex gap-2">
+                  <label className="block flex-1">
+                    <span className="mb-2 block text-sm font-bold text-slate-300">验证码</span>
+                    <input
+                      name="code"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      value={formData.code}
+                      onChange={handleChange}
+                      className="h-11 w-full rounded-xl border border-white/10 bg-white/[0.07] px-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-300/60 focus:ring-4 focus:ring-cyan-300/10"
+                      placeholder="6 位验证码"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleSendResetCode}
+                    disabled={sendingCode || countdown > 0}
+                    className="mt-7 inline-flex h-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.07] px-3 text-sm font-black text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-60"
+                  >
+                    {countdown > 0 ? `${countdown}s` : sendingCode ? '发送中...' : '发送验证码'}
+                  </button>
+                </div>
+
+                {debugCode && (
+                  <div className="rounded-xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm font-bold text-amber-100">
+                    开发模式验证码：{debugCode}
+                  </div>
+                )}
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold text-slate-300">新密码</span>
+                  <input
+                    name="newPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    value={formData.newPassword}
+                    onChange={handleChange}
+                    className="h-11 w-full rounded-xl border border-white/10 bg-white/[0.07] px-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-300/60 focus:ring-4 focus:ring-cyan-300/10"
+                    placeholder="至少 6 位"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold text-slate-300">确认新密码</span>
+                  <input
+                    name="confirmPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    value={formData.confirmPassword}
+                    onChange={handleChange}
+                    className="h-11 w-full rounded-xl border border-white/10 bg-white/[0.07] px-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-300/60 focus:ring-4 focus:ring-cyan-300/10"
+                    placeholder="再次输入新密码"
+                  />
+                </label>
+              </>
+            ) : (
+              <label className="block">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="block text-sm font-bold text-slate-300">密码</span>
+                  {!isRegister && (
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      className="text-xs font-bold text-cyan-200 transition hover:text-cyan-100"
+                    >
+                      忘记密码？
+                    </button>
+                  )}
+                </div>
+                <input
+                  name="password"
+                  type="password"
+                  autoComplete={isRegister ? 'new-password' : 'current-password'}
+                  value={formData.password}
+                  onChange={handleChange}
+                  className="h-11 w-full rounded-xl border border-white/10 bg-white/[0.07] px-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-300/60 focus:ring-4 focus:ring-cyan-300/10"
+                  placeholder={isRegister ? '设置登录密码' : '输入登录密码'}
+                />
+              </label>
+            )}
+
+            {error && (
+              <div className="rounded-xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm font-bold text-rose-100">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-cyan-300 px-5 text-sm font-black text-slate-950 shadow-[0_18px_38px_rgba(34,211,238,0.18)] transition hover:-translate-y-0.5 hover:bg-cyan-200 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-60"
+            >
+              {isSubmitting ? '提交中...' : isForgot ? '重置密码' : isRegister ? '立即注册' : '登录'}
+            </button>
+          </form>
+
+          {showWechatLogin && (
+            <button
+              type="button"
+              onClick={() => setAuthView('wechat')}
+              className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.055] px-4 text-sm font-black text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/40 hover:bg-white/[0.09] hover:text-white"
+            >
+              <QrCode className="h-4 w-4 text-emerald-200" />
+              微信扫码登录
+            </button>
+          )}
+
+          <div className="mt-5 text-center text-sm text-slate-400">
+            {isForgot ? '想起密码了？' : isRegister ? '已有账号？' : '还没有账号？'}
+            <button
+              type="button"
+              onClick={() => onModeChange(isRegister || isForgot ? 'login' : 'register')}
+              className="ml-2 font-black text-cyan-200 transition hover:text-cyan-100"
+            >
+              {isForgot ? '去登录' : isRegister ? '去登录' : '立即注册'}
+            </button>
+          </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -727,9 +1309,28 @@ const LandingPage = () => {
   const navigate = useNavigate();
   const loggedIn = isLoggedIn();
   const [guestLoading, setGuestLoading] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
 
-  const handleStart = () => navigate(loggedIn ? '/app' : '/login');
-  const handleRegister = () => navigate(loggedIn ? '/app' : '/login', { state: { mode: 'register' } });
+  const openAuthModal = (mode) => {
+    if (loggedIn) {
+      navigate('/app');
+      return;
+    }
+    setAuthMode(mode);
+    setAuthModalOpen(true);
+  };
+
+  const handleStart = () => {
+    if (loggedIn) {
+      navigate('/app');
+      return;
+    }
+    openAuthModal('login');
+  };
+
+  const handleLogin = () => openAuthModal('login');
+  const handleRegister = () => openAuthModal('register');
 
   const handleGuest = async () => {
     if (loggedIn) {
@@ -755,7 +1356,7 @@ const LandingPage = () => {
 
   return (
     <div className="min-h-screen bg-white text-slate-950">
-      <Navbar loggedIn={loggedIn} onStart={handleStart} onRegister={handleRegister} />
+      <Navbar loggedIn={loggedIn} onStart={handleStart} onLogin={handleLogin} onRegister={handleRegister} />
       <HeroSection
         loggedIn={loggedIn}
         loading={guestLoading}
@@ -782,6 +1383,13 @@ const LandingPage = () => {
         <CTASection loggedIn={loggedIn} onStart={handleStart} onRegister={handleRegister} />
       </Reveal>
       <Footer />
+      <AuthModal
+        open={authModalOpen}
+        mode={authMode}
+        onClose={() => setAuthModalOpen(false)}
+        onModeChange={setAuthMode}
+        onSuccess={navigate}
+      />
     </div>
   );
 };
