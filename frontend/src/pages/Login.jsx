@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import {
   ArrowRight,
   Database,
@@ -50,13 +50,14 @@ const fieldBaseClassName =
 
 const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const wechatContainerId = useMemo(
     () => `wechat-login-container-${Math.random().toString(36).slice(2, 10)}`,
     []
   );
   const hasRenderedWechatRef = useRef(false);
 
-  const [mode, setMode] = useState('login');
+  const [mode, setMode] = useState(location.state?.mode === 'register' ? 'register' : 'login');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState('');

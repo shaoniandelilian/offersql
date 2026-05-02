@@ -56,4 +56,18 @@ describe('Login page', () => {
     expect(container.textContent).toContain('邮箱');
     expect(container.textContent).not.toContain('手机号');
   });
+
+  it('opens register mode when route state requests registration', async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={[{ pathname: '/login', state: { mode: 'register' } }]}>
+          <Login />
+        </MemoryRouter>
+      );
+    });
+
+    expect(container.textContent).toContain('创建邮箱账号');
+    expect(container.textContent).toContain('注册并开始练习');
+    expect(container.textContent).not.toContain('微信扫码登录');
+  });
 });
